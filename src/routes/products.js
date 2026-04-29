@@ -2,107 +2,92 @@ const router = require('express').Router();
 const { adminMiddleware } = require('../middleware/auth');
 const { cloudinary } = require('../middleware/upload');
 const Product = require('../models/Product');
-const {
-  getProducts,
-  getProduct,
-} = require('../controllers/productController');
+const { getProducts, getProduct } = require('../controllers/productController');
+
+// ── /categories MUST be first — before both / and /:id ────────────────────
+// Express matches top-to-bottom. If /:id appears before this, the string
+// "categories" gets treated as a product ID and Mongo returns null.
+router.get('/categories', async (req, res) => {
+  try {
+    const categories = await Product.distinct('category');
+    res.json(categories.filter(c => c && c.trim() !== '').sort());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 router.get('/',    getProducts);
 router.get('/:id', getProduct);
 
-// POST — create product (JSON body from Flutter)
 router.post('/', adminMiddleware, async (req, res) => {
   try {
-    const {
-      name, description, price,
-      stock, category, imageUrl
-    } = req.body;
-
-    // Validate
-    if (!name || !name.fr) {
-      return res.status(400).json({ message: 'Nom en français requis' });
-    }
-
+    const b = req.body;
     const product = new Product({
-      name:        { fr: name.fr, en: name.en || name.fr, ar: name.ar || name.fr },
-      description: { fr: description?.fr || '', en: description?.en || '', ar: description?.ar || '' },
-      price:       Number(price)    || 0,
-      stock:       Number(stock)    || 0,
-      category:    category         || 'Accessories',
-      imageUrl:    imageUrl         || '',
+      name:             { fr: b.name?.fr, en: b.name?.en || b.name?.fr, ar: b.name?.ar || b.name?.fr },
+      description:      { fr: b.description?.fr,      en: b.description?.en,      ar: b.description?.ar },
+      workingPrinciple: { fr: b.workingPrinciple?.fr,  en: b.workingPrinciple?.en,  ar: b.workingPrinciple?.ar },
+      features:         { fr: b.features?.fr,          en: b.features?.en,          ar: b.features?.ar },
+      specifications:   { fr: b.specifications?.fr,    en: b.specifications?.en,    ar: b.specifications?.ar },
+      applications:     { fr: b.applications?.fr,      en: b.applications?.en,      ar: b.applications?.ar },
+      howToUse:         { fr: b.howToUse?.fr,          en: b.howToUse?.en,          ar: b.howToUse?.ar },
+      parameters:       b.parameters  || [],
+      sampleCode:       b.sampleCode  || '',
+      codeLanguage:     b.codeLanguage || 'cpp',
+      price:            Number(b.price) || 0,
+      stock:            Number(b.stock) || 0,
+      category:         b.category || '',
+      imageUrl:         b.imageUrl || '',
+      images:           b.images   || [],
+      circuitImages:    b.circuitImages || [],
     });
-
     await product.save();
-    console.log('✅ Product created:', product.name.fr);
     res.status(201).json(product);
   } catch (err) {
-    console.error('❌ Create product error:', err.message);
     res.status(400).json({ message: err.message });
   }
 });
 
-// PUT — update product
 router.put('/:id', adminMiddleware, async (req, res) => {
   try {
-    const {
-      name, description, price,
-      stock, category, imageUrl
-    } = req.body;
-
+    const b = req.body;
     const existing = await Product.findById(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ message: 'Produit introuvable' });
-    }
-
-    const updateData = {
-      name: {
-        fr: name?.fr || existing.name.fr,
-        en: name?.en || existing.name.en,
-        ar: name?.ar || existing.name.ar,
-      },
-      description: {
-        fr: description?.fr ?? existing.description?.fr,
-        en: description?.en ?? existing.description?.en,
-        ar: description?.ar ?? existing.description?.ar,
-      },
-      price:    Number(price)    || existing.price,
-      stock:    Number(stock)    || existing.stock,
-      category: category         || existing.category,
-      imageUrl: imageUrl         || existing.imageUrl,
+    if (!existing) return res.status(404).json({ message: 'Not found' });
+    const update = {
+      name:             b.name             || existing.name,
+      description:      b.description      || existing.description,
+      workingPrinciple: b.workingPrinciple  || existing.workingPrinciple,
+      features:         b.features          || existing.features,
+      specifications:   b.specifications    || existing.specifications,
+      applications:     b.applications      || existing.applications,
+      howToUse:         b.howToUse          || existing.howToUse,
+      parameters:       b.parameters        ?? existing.parameters,
+      sampleCode:       b.sampleCode        ?? existing.sampleCode,
+      codeLanguage:     b.codeLanguage      || existing.codeLanguage,
+      price:            Number(b.price)     || existing.price,
+      stock:            Number(b.stock)     ?? existing.stock,
+      category:         b.category          || existing.category,
+      imageUrl:         b.imageUrl          ?? existing.imageUrl,
+      images:           b.images            ?? existing.images,
+      circuitImages:    b.circuitImages      ?? existing.circuitImages,
     };
-
     const product = await Product.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
-
-    console.log('✅ Product updated:', product.name.fr);
+        req.params.id, update, { new: true });
     res.json(product);
   } catch (err) {
-    console.error('❌ Update product error:', err.message);
     res.status(400).json({ message: err.message });
   }
 });
 
-// DELETE — product
 router.delete('/:id', adminMiddleware, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) {
-      return res.status(404).json({ message: 'Produit introuvable' });
-    }
-
-    // Delete image from Cloudinary if exists
+    if (!product) return res.status(404).json({ message: 'Not found' });
     if (product.cloudinaryId) {
       await cloudinary.uploader.destroy(product.cloudinaryId);
     }
-
     await Product.findByIdAndDelete(req.params.id);
-    console.log('✅ Product deleted');
-    res.json({ message: 'Produit supprimé' });
+    res.json({ message: 'Supprimé' });
   } catch (err) {
-    console.error('❌ Delete product error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });

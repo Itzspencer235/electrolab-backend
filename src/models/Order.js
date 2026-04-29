@@ -21,6 +21,12 @@ const OrderSchema = new mongoose.Schema({
     default: 'pending',
   },
   note: { type: String, default: '' },
+  user: {
+    userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    name:     { type: String, required: true },
+    phone:    { type: String, required: true },
+    location: { type: String, required: true },
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', OrderSchema);

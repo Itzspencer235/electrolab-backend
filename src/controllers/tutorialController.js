@@ -1,52 +1,227 @@
 const Tutorial = require('../models/Tutorial');
+const Product  = require('../models/Product');
+
+const loc = (f, lang) => {
+  if (!f) return '';
+  if (typeof f === 'string') return f;
+  return f[lang] || f.fr || f.en || f.ar || '';
+};
+
+// ── GET all tutorials ──────────────────────────────────────────────────────────
 
 exports.getTutorials = async (req, res) => {
   try {
-    const lang = req.query.lang || 'fr';
-    const tutorials = await Tutorial.find().populate('components', 'name price imageUrl');
+    const lang     = req.query.lang     || 'fr';
+    const level    = req.query.level    || null;
+    const category = req.query.category || null;
 
-    const localized = tutorials.map(t => ({
+    const filter = {};
+    if (level)    filter.level    = level;
+    if (category) filter.category = category;
+
+    const tutorials = await Tutorial.find(filter)
+      .populate('components.product', 'name price imageUrl category')
+      .sort({ createdAt: -1 });
+
+    const result = tutorials.map(t => ({
       _id:         t._id,
-      title:       t.title[lang]   || t.title.fr,
-      content:     t.content[lang] || t.content.fr,
+      title:       loc(t.title, lang),
+      description: loc(t.description, lang),
       level:       t.level,
+      category:    t.category,
       imageUrl:    t.imageUrl,
-      codeSnippet: t.codeSnippet,
-      components:  t.components,
+      youtubeUrl:  t.youtubeUrl,
+      duration:    t.duration,
+      views:       t.views,
+      components:  (t.components || []).map(c => _mapComponent(c, lang)),
+      createdAt:   t.createdAt,
     }));
 
-    res.json(localized);
+    res.json(result);
   } catch (err) {
+    console.error('getTutorials error:', err);
     res.status(500).json({ message: err.message });
   }
 };
+
+// ── GET single tutorial ────────────────────────────────────────────────────────
 
 exports.getTutorial = async (req, res) => {
   try {
     const lang = req.query.lang || 'fr';
-    const t = await Tutorial.findById(req.params.id).populate('components');
-    if (!t) return res.status(404).json({ message: 'Tutorial not found' });
+
+    const t = await Tutorial.findById(req.params.id)
+      .populate('components.product', 'name price imageUrl category stock');
+
+    if (!t) return res.status(404).json({ message: 'Tutoriel introuvable' });
+
+    // Increment views
+    await Tutorial.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } });
 
     res.json({
       _id:         t._id,
-      title:       t.title[lang]   || t.title.fr,
-      content:     t.content[lang] || t.content.fr,
+      title:       loc(t.title, lang),
+      description: loc(t.description, lang),
+      content:     loc(t.content, lang),
       level:       t.level,
+      category:    t.category,
       imageUrl:    t.imageUrl,
-      codeSnippet: t.codeSnippet,
-      components:  t.components,
+      youtubeUrl:  t.youtubeUrl,
+      images:      t.images || [],
+      duration:    t.duration,
+      views:       t.views,
+      codeSnippet:  t.codeSnippet  || '',
+      codeLanguage: t.codeLanguage || 'cpp',
+      steps: (t.steps || []).map(s => ({
+        title:   s.title   || '',
+        content: s.content || '',
+      })),
+      components: (t.components || []).map(c => _mapComponent(c, lang)),
+      createdAt: t.createdAt,
     });
   } catch (err) {
+    console.error('getTutorial error:', err);
     res.status(500).json({ message: err.message });
   }
 };
 
+// ── Helper: map a component subdoc to a clean JSON object ─────────────────────
+// Handles both old schema (productId) and new schema (product + name{fr,en,ar})
+
+function _mapComponent(c, lang) {
+  const pop = c.product; // populated Product doc (or null)
+
+  // Name: prefer the component's own multilang name field,
+  // fall back to the populated product's name
+  const name =
+    loc(c.name, lang) ||
+    (pop ? loc(pop.name, lang) : '') ||
+    '';
+
+  return {
+    _id:      c._id,
+    name,                                           // plain string, ready for Flutter
+    product:  pop ? pop._id.toString() : '',        // product ID for navigation
+    imageUrl: (pop ? pop.imageUrl : '') || c.imageUrl || '',
+    category: (pop ? pop.category : '') || c.category || '',
+    price:    (pop ? pop.price    : 0)  || c.price    || 0,
+    stock:    pop ? (pop.stock || 0) : 0,
+    quantity: c.quantity || 1,
+  };
+}
+
+// ── CREATE tutorial ────────────────────────────────────────────────────────────
+
 exports.createTutorial = async (req, res) => {
   try {
-    const tutorial = new Tutorial(req.body);
+    const b = req.body;
+
+    const tutorial = new Tutorial({
+      title: {
+        fr: b.title?.fr || '',
+        en: b.title?.en || b.title?.fr || '',
+        ar: b.title?.ar || b.title?.fr || '',
+      },
+      description: {
+        fr: b.description?.fr || '',
+        en: b.description?.en || '',
+        ar: b.description?.ar || '',
+      },
+      content: {
+        fr: b.content?.fr || '',
+        en: b.content?.en || '',
+        ar: b.content?.ar || '',
+      },
+      level:       b.level       || 'beginner',
+      category:    b.category    || 'General',
+      imageUrl:    b.imageUrl    || '',
+      youtubeUrl:  b.youtubeUrl  || '',
+      images:      b.images      || [],
+      codeSnippet:  b.codeSnippet  || '',
+      codeLanguage: b.codeLanguage || 'cpp',
+      duration:     Number(b.duration) || 0,
+      steps: (b.steps || []).map(s => ({
+        title:   s.title   || '',
+        content: s.content || '',
+      })),
+      components: (b.components || []).map(c => ({
+        name: {
+          fr: c.name?.fr || c.name || '',
+          en: c.name?.en || c.name?.fr || c.name || '',
+          ar: c.name?.ar || c.name?.fr || c.name || '',
+        },
+        product:  c.product  || c.productId || undefined,
+        imageUrl: c.imageUrl || '',
+        category: c.category || '',
+        price:    Number(c.price)    || 0,
+        quantity: Number(c.quantity) || 1,
+      })),
+    });
+
     await tutorial.save();
     res.status(201).json(tutorial);
   } catch (err) {
+    console.error('createTutorial error:', err);
     res.status(400).json({ message: err.message });
+  }
+};
+
+// ── UPDATE tutorial ────────────────────────────────────────────────────────────
+
+exports.updateTutorial = async (req, res) => {
+  try {
+    const b = req.body;
+
+    const updated = await Tutorial.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          title:       b.title,
+          description: b.description,
+          content:     b.content,
+          level:       b.level,
+          category:    b.category,
+          imageUrl:    b.imageUrl,
+          youtubeUrl:  b.youtubeUrl,
+          images:      b.images || [],
+          codeSnippet:  b.codeSnippet  || '',
+          codeLanguage: b.codeLanguage || 'cpp',
+          duration:     Number(b.duration) || 0,
+          steps: (b.steps || []).map(s => ({
+            title:   s.title   || '',
+            content: s.content || '',
+          })),
+          components: (b.components || []).map(c => ({
+            name: {
+              fr: c.name?.fr || c.name || '',
+              en: c.name?.en || c.name?.fr || c.name || '',
+              ar: c.name?.ar || c.name?.fr || c.name || '',
+            },
+            product:  c.product  || c.productId || undefined,
+            imageUrl: c.imageUrl || '',
+            category: c.category || '',
+            price:    Number(c.price)    || 0,
+            quantity: Number(c.quantity) || 1,
+          })),
+        },
+      },
+      { new: true }
+    );
+
+    res.json(updated);
+  } catch (err) {
+    console.error('updateTutorial error:', err);
+    res.status(400).json({ message: err.message });
+  }
+};
+
+// ── DELETE tutorial ────────────────────────────────────────────────────────────
+
+exports.deleteTutorial = async (req, res) => {
+  try {
+    await Tutorial.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Tutoriel supprimé' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };

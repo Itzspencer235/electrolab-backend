@@ -13,6 +13,7 @@ app.use('/api/products',  require('./routes/products'));
 app.use('/api/orders',    require('./routes/orders'));
 app.use('/api/users',     require('./routes/users'));
 app.use('/api/tutorials', require('./routes/tutorials'));
+app.use('/api/stats', require('./routes/stats'));
 app.use('/api/chat',      require('./routes/chat'));
 
 // Test route
