@@ -10,14 +10,13 @@ const TutorialSchema = new mongoose.Schema({
   youtubeUrl:  { type: String, default: '' },
   images:      [{ type: String }],
 
-  // ← Components: each has a name (multilang), optional product ref, price, qty
   components: [{
-    name: {
-      fr: { type: String },
-      en: { type: String },
-      ar: { type: String },
-    },
-    product:  { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    // Keep productId for backward compatibility with existing data
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    // Also accept new 'product' field going forward
+    product:   { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    // Optional manual name (multilang) if no product linked
+    name: { fr: String, en: String, ar: String },
     imageUrl: { type: String, default: '' },
     category: { type: String, default: '' },
     price:    { type: Number, default: 0 },
@@ -33,3 +32,5 @@ const TutorialSchema = new mongoose.Schema({
   duration:     { type: Number, default: 0 },
   views:        { type: Number, default: 0 },
 }, { timestamps: true });
+
+module.exports = mongoose.model('Tutorial', TutorialSchema);
