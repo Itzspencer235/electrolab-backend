@@ -217,14 +217,33 @@ exports.updateProfile = async (req, res) => {
 // ── Sync cart ─────────────────────────────────────────────────────────────────
 exports.syncCart = async (req, res) => {
   try {
-    const { cart } = req.body; // array of cart items
+    const { cart } = req.body;
+    console.log('🛒 syncCart called, userId:', req.user.id, 'items:', cart?.length);
+
+    if (!Array.isArray(cart)) {
+      return res.status(400).json({ message: 'cart must be an array' });
+    }
+
+    const User = require('../models/User');
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { cart },
+      {
+        cart: cart.map(i => ({
+          product:  i.product,
+          name:     i.name     || '',
+          price:    i.price    || 0,
+          imageUrl: i.imageUrl || '',
+          category: i.category || '',
+          quantity: i.quantity || 1,
+        })),
+      },
       { new: true }
     ).select('cart');
+
+    console.log('✅ Cart synced, items in DB:', user.cart.length);
     res.json({ cart: user.cart });
   } catch (err) {
+    console.error('❌ syncCart error:', err.message);
     res.status(500).json({ message: err.message });
   }
 };
@@ -233,17 +252,34 @@ exports.syncCart = async (req, res) => {
 exports.syncWishlist = async (req, res) => {
   try {
     const { wishlist } = req.body;
+    console.log('❤️ syncWishlist called, userId:', req.user.id, 'items:', wishlist?.length);
+
+    if (!Array.isArray(wishlist)) {
+      return res.status(400).json({ message: 'wishlist must be an array' });
+    }
+
+    const User = require('../models/User');
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { wishlist },
+      {
+        wishlist: wishlist.map(i => ({
+          product:  i.product,
+          name:     i.name     || '',
+          price:    i.price    || 0,
+          imageUrl: i.imageUrl || '',
+          category: i.category || '',
+        })),
+      },
       { new: true }
     ).select('wishlist');
+
+    console.log('✅ Wishlist synced, items in DB:', user.wishlist.length);
     res.json({ wishlist: user.wishlist });
   } catch (err) {
+    console.error('❌ syncWishlist error:', err.message);
     res.status(500).json({ message: err.message });
   }
 };
-
 // ── Add to cart ───────────────────────────────────────────────────────────────
 exports.addToCart = async (req, res) => {
   try {

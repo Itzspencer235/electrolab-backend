@@ -1,11 +1,19 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+
 require('dotenv').config();
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',    // Next.js dev
+    'http://localhost:3001',
+    'https://yourdomain.com',   // production
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 // Routes
