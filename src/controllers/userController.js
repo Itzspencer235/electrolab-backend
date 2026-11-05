@@ -89,14 +89,42 @@ exports.login = async (req, res) => {
   }
 };
 
-// ── Google OAuth ──────────────────────────────────────────────────────────────
+// ── Google OAuth (ID token from mobile, access token from web) ────────────────
 exports.googleAuth = async (req, res) => {
   try {
     const { idToken } = req.body;
-    const ticket  = await googleClient.verifyIdToken({
-      idToken, audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const payload = ticket.getPayload();
+    if (!idToken) return res.status(400).json({ message: 'Token requis' });
+
+    let payload;
+
+    try {
+      // Mobile: ID token
+      const ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      // Web: access token. Confirm it was issued for OUR client ID first.
+      const infoRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(idToken)}`
+      );
+      if (!infoRes.ok) throw new Error('Invalid Google token');
+      const info = await infoRes.json();
+      if (info.aud !== process.env.GOOGLE_CLIENT_ID) {
+        throw new Error('Google token audience mismatch');
+      }
+
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!userRes.ok) throw new Error('Cannot read Google profile');
+      payload = await userRes.json();
+    }
+
+    if (!payload?.email) {
+      return res.status(400).json({ message: 'Email introuvable depuis Google' });
+    }
 
     let user = await User.findOne({ googleId: payload.sub });
     if (!user) {
@@ -107,18 +135,23 @@ exports.googleAuth = async (req, res) => {
         if (!user.avatar) user.avatar = payload.picture;
       } else {
         user = await User.create({
-          name: payload.name, email: payload.email,
-          googleId: payload.sub, avatar: payload.picture,
-          provider: 'google', isVerified: true, lastLoginAt: new Date(),
+          name:        payload.name,
+          email:       payload.email,
+          googleId:    payload.sub,
+          avatar:      payload.picture,
+          provider:    'google',
+          isVerified:  true,
+          lastLoginAt: new Date(),
         });
       }
     }
+
     user.lastLoginAt = new Date();
     await user.save();
     res.json(userResponse(user, signToken(user)));
   } catch (err) {
     console.error('Google auth error:', err.message);
-    res.status(500).json({ message: 'Erreur Google OAuth' });
+    res.status(500).json({ message: 'Erreur Google OAuth: ' + err.message });
   }
 };
 
@@ -186,16 +219,13 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// ── Sync cart ──────────────────────────────────────────────────────────────────
-// ⚠️  Use the User already imported at the top — DO NOT re-require it here
+// ── Sync cart (legacy) ────────────────────────────────────────────────────────
 exports.syncCart = async (req, res) => {
   try {
     const { cart } = req.body;
 
     if (!Array.isArray(cart))
       return res.status(400).json({ message: 'cart must be an array' });
-
-    console.log(`🛒 syncCart  user=${req.user.id}  items=${cart.length}`);
 
     const updated = await User.findByIdAndUpdate(
       req.user.id,
@@ -217,7 +247,6 @@ exports.syncCart = async (req, res) => {
     if (!updated)
       return res.status(404).json({ message: 'User not found' });
 
-    console.log(`✅ Cart saved  items_in_db=${updated.cart.length}`);
     res.json({ cart: updated.cart });
   } catch (err) {
     console.error('❌ syncCart error:', err);
@@ -225,15 +254,13 @@ exports.syncCart = async (req, res) => {
   }
 };
 
-// ── Sync wishlist ─────────────────────────────────────────────────────────────
+// ── Sync wishlist (legacy) ────────────────────────────────────────────────────
 exports.syncWishlist = async (req, res) => {
   try {
     const { wishlist } = req.body;
 
     if (!Array.isArray(wishlist))
       return res.status(400).json({ message: 'wishlist must be an array' });
-
-    console.log(`❤️  syncWishlist  user=${req.user.id}  items=${wishlist.length}`);
 
     const updated = await User.findByIdAndUpdate(
       req.user.id,
@@ -254,7 +281,6 @@ exports.syncWishlist = async (req, res) => {
     if (!updated)
       return res.status(404).json({ message: 'User not found' });
 
-    console.log(`✅ Wishlist saved  items_in_db=${updated.wishlist.length}`);
     res.json({ wishlist: updated.wishlist });
   } catch (err) {
     console.error('❌ syncWishlist error:', err);
