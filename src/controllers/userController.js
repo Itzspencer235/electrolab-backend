@@ -185,7 +185,7 @@ exports.facebookAuth = async (req, res) => {
     res.json(userResponse(user, signToken(user)));
   } catch (err) {
     console.error('Facebook auth error:', err.message);
-    res.status(500).json({ message: 'Erreur Facebook OAuth' });
+    res.status(500).json({ message: 'Erreur Facebook OAuth: ' + err.message });
   }
 };
 
