@@ -4,6 +4,8 @@ const Product  = require('../models/Product');
 const User     = require('../models/User');
 const Order    = require('../models/Order');
 const Tutorial = require('../models/Tutorial');
+const Cart     = require('../models/Cart');
+const Wishlist = require('../models/Wishlist');
 
 router.get('/', adminMiddleware, async (req, res) => {
   try {
@@ -33,18 +35,18 @@ router.get('/', adminMiddleware, async (req, res) => {
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
 
-      // Top wishlisted products
-      User.aggregate([
-        { $unwind: '$wishlist' },
-        { $group: { _id: '$wishlist.product', name: { $first: '$wishlist.name' }, count: { $sum: 1 } } },
+      // Top wishlisted products (from the Wishlist collection the apps use now)
+      Wishlist.aggregate([
+        { $unwind: '$items' },
+        { $group: { _id: '$items.product', name: { $first: '$items.name' }, count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 5 },
       ]),
 
-      // Top carted products
-      User.aggregate([
-        { $unwind: '$cart' },
-        { $group: { _id: '$cart.product', name: { $first: '$cart.name' }, count: { $sum: 1 }, totalQty: { $sum: '$cart.quantity' } } },
+      // Top carted products (from the Cart collection the apps use now)
+      Cart.aggregate([
+        { $unwind: '$items' },
+        { $group: { _id: '$items.product', name: { $first: '$items.name' }, count: { $sum: 1 }, totalQty: { $sum: '$items.quantity' } } },
         { $sort: { count: -1 } },
         { $limit: 5 },
       ]),
