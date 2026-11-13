@@ -17,6 +17,18 @@ router.get('/categories', async (req, res) => {
 });
 
 router.get('/',    getProducts);
+
+// Admin: the full product with every language (for edit forms)
+router.get('/:id/full', adminMiddleware, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Not found' });
+    res.json(product);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 router.get('/:id', getProduct);
 
 router.post('/', adminMiddleware, async (req, res) => {
@@ -63,8 +75,8 @@ router.put('/:id', adminMiddleware, async (req, res) => {
       parameters:       b.parameters        ?? existing.parameters,
       sampleCode:       b.sampleCode        ?? existing.sampleCode,
       codeLanguage:     b.codeLanguage      || existing.codeLanguage,
-      price:            Number(b.price)     || existing.price,
-      stock:            Number(b.stock)     ?? existing.stock,
+      price:            b.price !== undefined && b.price !== '' ? Number(b.price) || 0 : existing.price,
+      stock:            b.stock !== undefined && b.stock !== '' ? Number(b.stock) || 0 : existing.stock,
       category:         b.category          || existing.category,
       imageUrl:         b.imageUrl          ?? existing.imageUrl,
       images:           b.images            ?? existing.images,

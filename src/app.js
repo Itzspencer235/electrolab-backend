@@ -24,6 +24,7 @@ app.use('/api/wishlist',  require('./routes/wishlist'));
 
 // Product requests (customer asks for a product the shop doesn't have)
 app.use('/api/requests',  require('./routes/requests'));
+app.use('/api/translate', require('./routes/translate'));   // admin auto-translate
 
 app.get('/', (req, res) => res.json({ message: 'IP ElectroLab API ✅' }));
 
