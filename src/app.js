@@ -30,6 +30,9 @@ app.get('/', (req, res) => res.json({ message: 'IP ElectroLab API ✅' }));
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ MongoDB connected');
+    // Replace old unique email/phone indexes that break Google/Facebook sign-up
+    require('./utils/fixUserIndexes')()
+      .catch(err => console.error('❌ User index fix failed:', err.message));
     app.listen(process.env.PORT || 5000, '0.0.0.0', () => {
       console.log(`✅ Server on port ${process.env.PORT || 5000}`);
     });
