@@ -22,6 +22,9 @@ app.use('/api/chat',      require('./routes/chat'));
 app.use('/api/cart',      require('./routes/cart'));
 app.use('/api/wishlist',  require('./routes/wishlist'));
 
+// Product requests (customer asks for a product the shop doesn't have)
+app.use('/api/requests',  require('./routes/requests'));
+
 app.get('/', (req, res) => res.json({ message: 'IP ElectroLab API ✅' }));
 
 mongoose.connect(process.env.MONGO_URI)
