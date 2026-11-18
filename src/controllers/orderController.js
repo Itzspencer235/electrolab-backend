@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Order    = require('../models/Order');
 const Product  = require('../models/Product');
+const { normalizePhone } = require('../services/phone');
 const { activeSales, priceInfo } = require('../services/pricing');
 const User     = require('../models/User');
 const { notifyUser } = require('../services/notify');
@@ -78,6 +79,18 @@ exports.createOrder = async (req, res) => {
       status: 'pending',
     });
     res.status(201).json(order);
+
+    // Google/Facebook accounts start without a phone: keep the one used for
+    // this order on the profile, so next time it's already filled in.
+    if (req.user?.id) {
+      const p = normalizePhone(phone);
+      if (p) {
+        User.updateOne(
+          { _id: req.user.id, $or: [{ phone: { $exists: false } }, { phone: null }, { phone: '' }] },
+          { $set: { phone: p } },
+        ).catch(() => {}); // e.g. number already used by another account → just skip
+      }
+    }
   } catch (err) {
     console.error('createOrder error:', err.message);
     res.status(400).json({ message: 'Commande invalide' });
