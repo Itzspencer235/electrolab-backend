@@ -12,7 +12,7 @@ router.get('/categories', async (req, res) => {
     const categories = await Product.distinct('category');
     res.json(categories.filter(c => c && c.trim() !== '').sort());
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -100,7 +100,7 @@ router.delete('/:id', adminMiddleware, async (req, res) => {
     await Product.findByIdAndDelete(req.params.id);
     res.json({ message: 'Supprimé' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 });
 

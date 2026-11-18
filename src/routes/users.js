@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/security');
 const {
   register, login, googleAuth, facebookAuth,
   getProfile, updateProfile,
@@ -8,10 +9,10 @@ const {
 } = require('../controllers/userController');
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
-router.post('/register',  register);
-router.post('/login',     login);
-router.post('/google',    googleAuth);
-router.post('/facebook',  facebookAuth);
+router.post('/register',  authLimiter, register);
+router.post('/login',     authLimiter, login);
+router.post('/google',    authLimiter, googleAuth);
+router.post('/facebook',  authLimiter, facebookAuth);
 
 // ── Profile ────────────────────────────────────────────────────────────────────
 router.get('/profile',    authMiddleware, getProfile);
@@ -30,19 +31,24 @@ router.post('/wishlist/toggle',   authMiddleware, toggleWishlist);
 router.get('/all',        adminMiddleware, async (req, res) => {
   try {
     const User  = require('../models/User');
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    const users = await User.find().select('-password -fcmTokens').sort({ createdAt: -1 });
     res.json(users);
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Server error' }); }
 });
 
 router.put('/:id/role',   adminMiddleware, async (req, res) => {
   try {
     const User = require('../models/User');
+    if (!['customer', 'admin'].includes(req.body?.role))
+      return res.status(400).json({ message: 'Invalid role' });
+    if (String(req.params.id) === String(req.user.id) && req.body.role !== 'admin')
+      return res.status(400).json({ message: 'You cannot remove your own admin role' });
     const user = await User.findByIdAndUpdate(
-      req.params.id, { role: req.body.role }, { new: true }
-    ).select('-password');
+      req.params.id, { role: req.body.role }, { new: true, runValidators: true }
+    ).select('-password -fcmTokens');
+    if (!user) return res.status(404).json({ message: 'Not found' });
     res.json(user);
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Server error' }); }
 });
 
 router.delete('/:id',     adminMiddleware, async (req, res) => {
@@ -50,7 +56,7 @@ router.delete('/:id',     adminMiddleware, async (req, res) => {
     const User = require('../models/User');
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'Utilisateur supprimé' });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Server error' }); }
 });
 
 module.exports = router;

@@ -2,6 +2,14 @@ const mongoose       = require('mongoose');
 const ProductRequest = require('../models/ProductRequest');
 const Product        = require('../models/Product');
 const User           = require('../models/User');
+const { notifyUser } = require('../services/notify');
+
+const REQUEST_TITLE = {
+  in_progress: { fr: 'Votre demande est en cours 🔎', en: 'We\'re working on your request 🔎', ar: 'طلبك قيد المعالجة 🔎' },
+  available:   { fr: 'Produit disponible ! 🎉',        en: 'Product available! 🎉',             ar: 'المنتج متوفر! 🎉' },
+  rejected:    { fr: 'Réponse à votre demande',        en: 'Reply to your request',             ar: 'رد على طلبك' },
+  pending:     { fr: 'Réponse à votre demande',        en: 'Reply to your request',             ar: 'رد على طلبك' },
+};
 
 const STATUSES        = ['pending', 'in_progress', 'available', 'rejected'];
 const MAX_OPEN_PER_USER = 10; // simple anti-spam limit
@@ -78,7 +86,7 @@ exports.getMyRequests = async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -98,7 +106,7 @@ exports.deleteMyRequest = async (req, res) => {
     await request.deleteOne();
     res.json({ message: 'Request cancelled' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -114,7 +122,7 @@ exports.getAllRequests = async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -151,12 +159,35 @@ exports.updateRequest = async (req, res) => {
     }
     updates.respondedAt = new Date();
 
+    const before  = await ProductRequest.findById(req.params.id).select('status adminMessage product');
     const request = await ProductRequest.findByIdAndUpdate(
       req.params.id, updates, { new: true, runValidators: true },
     ).populate('product', PRODUCT_FIELDS);
     if (!request) return res.status(404).json({ message: 'Request not found' });
 
     res.json(request);
+
+    // Tell the customer when the status, reply or linked product changed
+    const changed = before && (
+      before.status !== request.status ||
+      (before.adminMessage || '') !== (request.adminMessage || '') ||
+      String(before.product || '') !== String(request.product?._id || ''));
+    if (changed) {
+      const name = request.name;
+      notifyUser(request.user.userId, {
+        type: 'request',
+        title: REQUEST_TITLE[request.status] || REQUEST_TITLE.pending,
+        body: request.adminMessage
+          ? `${name} — ${request.adminMessage}`
+          : { fr: `${name} : ${({ in_progress: 'nous cherchons ce produit pour vous.', available: 'ce produit est maintenant disponible.', rejected: 'nous ne pouvons pas le proposer pour le moment.' })[request.status] || 'mise à jour.'}`,
+              en: `${name}: ${({ in_progress: 'we are looking for it.', available: 'it is now available.', rejected: 'we can\'t offer it for now.' })[request.status] || 'updated.'}`,
+              ar: `${name}: ${({ in_progress: 'نبحث عنه لك.', available: 'أصبح متوفراً الآن.', rejected: 'لا يمكننا توفيره حالياً.' })[request.status] || 'تحديث.'}` },
+        data: {
+          requestId: String(request._id),
+          ...(request.product?._id ? { productId: String(request.product._id) } : {}),
+        },
+      }, { inApp: true, push: true, email: false });
+    }
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -172,6 +203,6 @@ exports.adminDeleteRequest = async (req, res) => {
     if (!request) return res.status(404).json({ message: 'Request not found' });
     res.json({ message: 'Request deleted' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };

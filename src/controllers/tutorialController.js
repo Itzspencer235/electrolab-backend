@@ -78,7 +78,7 @@ exports.getTutorials = async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('getTutorials error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -126,7 +126,7 @@ exports.getTutorial = async (req, res) => {
     });
   } catch (err) {
     console.error('getTutorial error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -255,6 +255,6 @@ exports.deleteTutorial = async (req, res) => {
     await Tutorial.findByIdAndDelete(req.params.id);
     res.json({ message: 'Tutoriel supprimé' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };

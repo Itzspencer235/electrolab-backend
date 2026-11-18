@@ -31,6 +31,11 @@ const UserSchema = new mongoose.Schema({
     category: String,
   }],
 
+  // Notifications
+  fcmTokens:  { type: [String], default: [] },   // phones that receive push
+  notifyPush: { type: Boolean, default: true },  // user setting in the app
+  welcomeEmailSentAt: { type: Date },
+
   isVerified:  { type: Boolean, default: false },
   lastLoginAt: { type: Date },
 }, { timestamps: true });

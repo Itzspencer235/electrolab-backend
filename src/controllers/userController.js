@@ -1,6 +1,7 @@
 const User    = require('../models/User');
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
+const { welcomeUser } = require('../services/notify');
 const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -10,6 +11,22 @@ const signToken = (user) => jwt.sign(
   process.env.JWT_SECRET,
   { expiresIn: '90d' }
 );
+
+// Only plain strings are accepted for identifiers (never {"$regex": ...} etc.)
+const asString = (v, max = 200) =>
+  (typeof v === 'string' && v.trim() && v.length <= max ? v.trim() : undefined);
+
+// Same answer whether the account is missing or the password is wrong,
+// so the login form can't be used to find out who has an account.
+const BAD_LOGIN = 'Identifiants incorrects';
+
+// A Google/Facebook sign-in proved who owns this email. If a password account
+// with the same email was never verified, whoever created it may not own the
+// email: drop that password so only the real owner keeps access.
+const claimByEmail = (user) => {
+  if (!user.isVerified && user.password) user.password = undefined;
+  user.isVerified = true;
+};
 
 const userResponse = (user, token) => ({
   token,
@@ -28,8 +45,14 @@ const userResponse = (user, token) => ({
 // ── Register ──────────────────────────────────────────────────────────────────
 exports.register = async (req, res) => {
   try {
-    const { name, email, phone, password, language } = req.body;
+    const name     = asString(req.body?.name, 100);
+    const email    = asString(req.body?.email)?.toLowerCase();
+    const phone    = asString(req.body?.phone, 30);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const language = ['fr', 'en', 'ar'].includes(req.body?.language) ? req.body.language : 'fr';
 
+    if (password.length > 200)
+      return res.status(400).json({ message: 'Mot de passe trop long' });
     if (!name || !password)
       return res.status(400).json({ message: 'Nom et mot de passe requis' });
     if (!email && !phone)
@@ -50,49 +73,51 @@ exports.register = async (req, res) => {
       email:       email    || undefined,
       phone:       phone    || undefined,
       password:    hashed,
-      language:    language || 'fr',
+      language,
       provider:    'local',
       lastLoginAt: new Date(),
     });
 
     res.status(201).json(userResponse(user, signToken(user)));
+    welcomeUser(user); // in-app welcome + welcome email (after responding)
   } catch (err) {
     console.error('Register error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
 // ── Login ─────────────────────────────────────────────────────────────────────
 exports.login = async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const email    = asString(req.body?.email);
+    const phone    = asString(req.body?.phone, 30);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if ((!email && !phone) || !password || password.length > 200)
+      return res.status(401).json({ message: BAD_LOGIN });
 
     const user = email
-      ? await User.findOne({ email })
+      ? await User.findOne({ email: { $in: [email, email.toLowerCase()] } })
       : await User.findOne({ phone });
 
-    if (!user)
-      return res.status(404).json({ message: 'Utilisateur introuvable' });
-    if (!user.password)
-      return res.status(400).json({ message: 'Compte OAuth — utilisez Google ou Facebook' });
-
-    const valid = await bcrypt.compare(password, user.password);
+    // Google/Facebook-only accounts have no password: same generic answer
+    const valid = !!user?.password && await bcrypt.compare(password, user.password);
     if (!valid)
-      return res.status(401).json({ message: 'Mot de passe incorrect' });
+      return res.status(401).json({ message: BAD_LOGIN });
 
     user.lastLoginAt = new Date();
     await user.save();
 
     res.json(userResponse(user, signToken(user)));
+    welcomeUser(user); // only does something the first time (or until the email went out)
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
 // ── Google OAuth (ID token from mobile, access token from web) ────────────────
 exports.googleAuth = async (req, res) => {
   try {
-    const { idToken } = req.body;
+    const idToken = asString(req.body?.idToken, 4096);
     if (!idToken) return res.status(400).json({ message: 'Token requis' });
 
     let payload;
@@ -122,16 +147,21 @@ exports.googleAuth = async (req, res) => {
       payload = await userRes.json();
     }
 
-    if (!payload?.email) {
+    if (!payload?.email || !payload?.sub) {
       return res.status(400).json({ message: 'Email introuvable depuis Google' });
     }
+    // userinfo can return the flag as a string
+    if (payload.email_verified !== true && payload.email_verified !== 'true') {
+      return res.status(401).json({ message: 'Email Google non vérifié' });
+    }
 
-    let user = await User.findOne({ googleId: payload.sub });
+    let user = await User.findOne({ googleId: String(payload.sub) });
     if (!user) {
-      user = await User.findOne({ email: payload.email });
+      user = await User.findOne({ email: String(payload.email) });
       if (user) {
         user.googleId = payload.sub;
         user.provider = 'google';
+        claimByEmail(user);
         if (!user.avatar) user.avatar = payload.picture;
       } else {
         user = await User.create({
@@ -149,29 +179,44 @@ exports.googleAuth = async (req, res) => {
     user.lastLoginAt = new Date();
     await user.save();
     res.json(userResponse(user, signToken(user)));
+    welcomeUser(user); // only does something the first time (or until the email went out)
   } catch (err) {
     console.error('Google auth error:', err.message);
-    res.status(500).json({ message: 'Erreur Google OAuth: ' + err.message });
+    res.status(500).json({ message: 'Connexion Google impossible' });
   }
 };
 
 // ── Facebook OAuth ────────────────────────────────────────────────────────────
 exports.facebookAuth = async (req, res) => {
   try {
-    const { accessToken, userId } = req.body;
-    const fbRes  = await fetch(
-      `https://graph.facebook.com/${userId}?fields=id,name,email,picture&access_token=${accessToken}`
-    );
-    const fbData = await fbRes.json();
-    if (fbData.error)
+    const accessToken = asString(req.body?.accessToken, 4096);
+    if (!accessToken) return res.status(400).json({ message: 'Token requis' });
+    const appId = process.env.FACEBOOK_APP_ID;
+    if (!appId) {
+      console.error('Facebook login: FACEBOOK_APP_ID is not set on the server');
+      return res.status(503).json({ message: 'Connexion Facebook indisponible' });
+    }
+
+    // The token must have been issued for OUR Facebook app, not any app
+    const appRes  = await fetch(`https://graph.facebook.com/app?${new URLSearchParams({ access_token: accessToken })}`);
+    const appData = await appRes.json().catch(() => ({}));
+    if (!appRes.ok || String(appData.id) !== String(appId))
+      return res.status(401).json({ message: 'Token Facebook invalide' });
+
+    const fbRes  = await fetch(`https://graph.facebook.com/me?${new URLSearchParams({
+      fields: 'id,name,email,picture', access_token: accessToken,
+    })}`);
+    const fbData = await fbRes.json().catch(() => ({}));
+    if (!fbRes.ok || fbData.error || !fbData.id)
       return res.status(401).json({ message: 'Token Facebook invalide' });
 
     let user = await User.findOne({ facebookId: fbData.id });
     if (!user) {
-      if (fbData.email) user = await User.findOne({ email: fbData.email });
+      if (fbData.email) user = await User.findOne({ email: String(fbData.email) });
       if (user) {
         user.facebookId = fbData.id;
         user.provider   = 'facebook';
+        claimByEmail(user);
       } else {
         user = await User.create({
           name: fbData.name, email: fbData.email || undefined,
@@ -183,9 +228,10 @@ exports.facebookAuth = async (req, res) => {
     user.lastLoginAt = new Date();
     await user.save();
     res.json(userResponse(user, signToken(user)));
+    welcomeUser(user); // only does something the first time (or until the email went out)
   } catch (err) {
     console.error('Facebook auth error:', err.message);
-    res.status(500).json({ message: 'Erreur Facebook OAuth: ' + err.message });
+    res.status(500).json({ message: 'Connexion Facebook impossible' });
   }
 };
 
@@ -193,29 +239,34 @@ exports.facebookAuth = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .select('-password')
+      .select('-password -fcmTokens')
       .populate('cart.product',     'name price imageUrl category stock')
       .populate('wishlist.product', 'name price imageUrl category stock');
     if (!user)
       return res.status(404).json({ message: 'Utilisateur introuvable' });
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
 // ── Update profile ────────────────────────────────────────────────────────────
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, language, avatar } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { name, language, avatar },
-      { new: true }
-    ).select('-password');
+    const update = {};
+    const name   = asString(req.body?.name, 100);
+    const avatar = typeof req.body?.avatar === 'string' ? req.body.avatar.trim() : undefined;
+    if (name) update.name = name;
+    if (['fr', 'en', 'ar'].includes(req.body?.language)) update.language = req.body.language;
+    if (avatar !== undefined) {
+      if (avatar && !/^https:\/\//i.test(avatar)) return res.status(400).json({ message: 'Invalid avatar URL' });
+      update.avatar = avatar.slice(0, 1000);
+    }
+    const user = await User.findByIdAndUpdate(req.user.id, update, { new: true })
+      .select('-password -fcmTokens');
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -250,7 +301,7 @@ exports.syncCart = async (req, res) => {
     res.json({ cart: updated.cart });
   } catch (err) {
     console.error('❌ syncCart error:', err);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -284,7 +335,7 @@ exports.syncWishlist = async (req, res) => {
     res.json({ wishlist: updated.wishlist });
   } catch (err) {
     console.error('❌ syncWishlist error:', err);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -303,7 +354,7 @@ exports.addToCart = async (req, res) => {
     await user.save();
     res.json({ cart: user.cart });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -315,7 +366,7 @@ exports.removeFromCart = async (req, res) => {
     await user.save();
     res.json({ cart: user.cart });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -334,6 +385,6 @@ exports.toggleWishlist = async (req, res) => {
     await user.save();
     res.json({ wishlist: user.wishlist, wishlisted: idx < 0 });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };

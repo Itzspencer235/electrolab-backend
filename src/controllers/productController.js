@@ -26,7 +26,7 @@ exports.getProducts = async (req, res) => {
     }));
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -55,6 +55,6 @@ exports.getProduct = async (req, res) => {
       circuitImages:    p.circuitImages || [],
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
