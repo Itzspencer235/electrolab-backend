@@ -4,31 +4,9 @@ const Product  = require('../models/Product');
 const { normalizePhone } = require('../services/phone');
 const { activeSales, priceInfo } = require('../services/pricing');
 const User     = require('../models/User');
-const { notifyUser } = require('../services/notify');
+const { onOrderPlaced, onOrderStatus } = require('../services/orderNotify');
 
-// Message the customer gets when the admin changes their order's status
-const ORDER_MSG = {
-  confirmed: {
-    title: { fr: 'Commande confirmée ✅', en: 'Order confirmed ✅', ar: 'تم تأكيد طلبك ✅' },
-    body:  { fr: 'Votre commande #{n} est confirmée. Nous vous contacterons pour la livraison.',
-             en: 'Your order #{n} is confirmed. We will contact you about delivery.',
-             ar: 'تم تأكيد طلبك #{n}. سنتواصل معك بخصوص التوصيل.' },
-  },
-  delivered: {
-    title: { fr: 'Commande livrée 📦', en: 'Order delivered 📦', ar: 'تم تسليم طلبك 📦' },
-    body:  { fr: 'Votre commande #{n} a été livrée. Merci pour votre confiance !',
-             en: 'Your order #{n} has been delivered. Thank you!',
-             ar: 'تم تسليم طلبك #{n}. شكراً لثقتك!' },
-  },
-  cancelled: {
-    title: { fr: 'Commande annulée', en: 'Order cancelled', ar: 'تم إلغاء الطلب' },
-    body:  { fr: 'Votre commande #{n} a été annulée. Contactez-nous pour toute question.',
-             en: 'Your order #{n} was cancelled. Contact us if you have any questions.',
-             ar: 'تم إلغاء طلبك #{n}. تواصل معنا لأي استفسار.' },
-  },
-};
 const STATUSES = ['pending', 'confirmed', 'delivered', 'cancelled'];
-const fill = (ml, n) => Object.fromEntries(Object.entries(ml).map(([k, v]) => [k, v.replace('{n}', n)]));
 
 // POST create order
 // Prices, total and status are decided here, never by the client: the client
@@ -79,6 +57,7 @@ exports.createOrder = async (req, res) => {
       status: 'pending',
     });
     res.status(201).json(order);
+    onOrderPlaced(order); // receipt + push for the customer, alert for the shop team
 
     // Google/Facebook accounts start without a phone: keep the one used for
     // this order on the profile, so next time it's already filled in.
@@ -138,15 +117,8 @@ exports.updateOrderStatus = async (req, res) => {
     );
     res.json(order);
 
-    // Tell the customer (only for logged-in orders, and only on a real change)
-    const msg = ORDER_MSG[order?.status];
-    if (msg && order.user?.userId && before?.status !== order.status) {
-      const n = String(order._id).slice(-8).toUpperCase();
-      notifyUser(order.user.userId, {
-        type: 'order', title: msg.title, body: fill(msg.body, n),
-        data: { orderId: String(order._id) },
-      });
-    }
+    // Tell the customer (push + email), only on a real change
+    if (before.status !== order.status) onOrderStatus(order);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
