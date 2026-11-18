@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 // alongside, but this record is what the apps display.
 const NotificationSchema = new mongoose.Schema({
   user:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type:  { type: String, enum: ['order', 'request', 'announcement', 'welcome'], default: 'announcement' },
+  type:  { type: String, enum: ['order', 'request', 'announcement', 'welcome', 'admin'], default: 'announcement' },
   title: { type: String, required: true, maxlength: 140 },
   body:  { type: String, default: '', maxlength: 2000 },
   // What to open when tapped, e.g. { orderId } / { requestId, productId }
