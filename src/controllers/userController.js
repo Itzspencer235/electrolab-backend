@@ -3,6 +3,8 @@ const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const { welcomeUser } = require('../services/notify');
 const { OAuth2Client } = require('google-auth-library');
+const { normalizePhone } = require('../services/phone');
+const { verifyLimitedToken, looksLikeJwt } = require('../services/facebookLimited');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -47,7 +49,8 @@ exports.register = async (req, res) => {
   try {
     const name     = asString(req.body?.name, 100);
     const email    = asString(req.body?.email)?.toLowerCase();
-    const phone    = asString(req.body?.phone, 30);
+    const rawPhone = asString(req.body?.phone, 30);
+    const phone    = normalizePhone(rawPhone) || rawPhone;
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     const language = ['fr', 'en', 'ar'].includes(req.body?.language) ? req.body.language : 'fr';
 
@@ -63,7 +66,7 @@ exports.register = async (req, res) => {
       if (exists) return res.status(400).json({ message: 'Email déjà utilisé' });
     }
     if (phone) {
-      const exists = await User.findOne({ phone });
+      const exists = await User.findOne({ phone: { $in: [...new Set([phone, rawPhone])] } }); // old accounts may have spaces
       if (exists) return res.status(400).json({ message: 'Téléphone déjà utilisé' });
     }
 
@@ -90,14 +93,15 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const email    = asString(req.body?.email);
-    const phone    = asString(req.body?.phone, 30);
+    const rawPhone = asString(req.body?.phone, 30);
+    const phone    = normalizePhone(rawPhone) || rawPhone;
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if ((!email && !phone) || !password || password.length > 200)
       return res.status(401).json({ message: BAD_LOGIN });
 
     const user = email
       ? await User.findOne({ email: { $in: [email, email.toLowerCase()] } })
-      : await User.findOne({ phone });
+      : await User.findOne({ phone: { $in: [...new Set([phone, rawPhone])] } }); // old accounts may have spaces
 
     // Google/Facebook-only accounts have no password: same generic answer
     const valid = !!user?.password && await bcrypt.compare(password, user.password);
@@ -197,18 +201,30 @@ exports.facebookAuth = async (req, res) => {
       return res.status(503).json({ message: 'Connexion Facebook indisponible' });
     }
 
-    // The token must have been issued for OUR Facebook app, not any app
-    const appRes  = await fetch(`https://graph.facebook.com/app?${new URLSearchParams({ access_token: accessToken })}`);
-    const appData = await appRes.json().catch(() => ({}));
-    if (!appRes.ok || String(appData.id) !== String(appId))
-      return res.status(401).json({ message: 'Token Facebook invalide' });
+    let fbData;
+    if (looksLikeJwt(accessToken)) {
+      // iOS "Limited Login": a signed JWT, checked with Facebook's public keys
+      try {
+        const p = await verifyLimitedToken(accessToken, appId);
+        fbData = { id: p.id, name: p.name, email: p.email, picture: { data: { url: p.picture } } };
+      } catch (e) {
+        console.error('Facebook limited token rejected:', e.message);
+        return res.status(401).json({ message: 'Token Facebook invalide' });
+      }
+    } else {
+      // Classic token: it must have been issued for OUR Facebook app, not any app
+      const appRes  = await fetch(`https://graph.facebook.com/app?${new URLSearchParams({ access_token: accessToken })}`);
+      const appData = await appRes.json().catch(() => ({}));
+      if (!appRes.ok || String(appData.id) !== String(appId))
+        return res.status(401).json({ message: 'Token Facebook invalide' });
 
-    const fbRes  = await fetch(`https://graph.facebook.com/me?${new URLSearchParams({
-      fields: 'id,name,email,picture', access_token: accessToken,
-    })}`);
-    const fbData = await fbRes.json().catch(() => ({}));
-    if (!fbRes.ok || fbData.error || !fbData.id)
-      return res.status(401).json({ message: 'Token Facebook invalide' });
+      const fbRes  = await fetch(`https://graph.facebook.com/me?${new URLSearchParams({
+        fields: 'id,name,email,picture', access_token: accessToken,
+      })}`);
+      fbData = await fbRes.json().catch(() => ({}));
+      if (!fbRes.ok || fbData.error || !fbData.id)
+        return res.status(401).json({ message: 'Token Facebook invalide' });
+    }
 
     let user = await User.findOne({ facebookId: fbData.id });
     if (!user) {
@@ -219,7 +235,7 @@ exports.facebookAuth = async (req, res) => {
         claimByEmail(user);
       } else {
         user = await User.create({
-          name: fbData.name, email: fbData.email || undefined,
+          name: fbData.name || 'Facebook', email: fbData.email || undefined,
           facebookId: fbData.id, avatar: fbData.picture?.data?.url || '',
           provider: 'facebook', isVerified: true, lastLoginAt: new Date(),
         });
@@ -258,6 +274,22 @@ exports.updateProfile = async (req, res) => {
     const avatar = typeof req.body?.avatar === 'string' ? req.body.avatar.trim() : undefined;
     if (name) update.name = name;
     if (['fr', 'en', 'ar'].includes(req.body?.language)) update.language = req.body.language;
+    if (req.body?.phone !== undefined) {
+      const raw = req.body.phone;
+      if (raw === null || raw === '') {
+        // Removing it is fine only if the account can still sign in another way
+        const me = await User.findById(req.user.id).select('email googleId facebookId');
+        if (!me?.email && !me?.googleId && !me?.facebookId)
+          return res.status(400).json({ message: 'Le téléphone est votre seul identifiant' });
+        update.$unset = { phone: 1 };
+      } else {
+        const phone = normalizePhone(String(raw));
+        if (!phone) return res.status(400).json({ message: 'Numéro de téléphone invalide' });
+        if (await User.exists({ phone, _id: { $ne: req.user.id } }))
+          return res.status(409).json({ message: 'Ce numéro est déjà utilisé par un autre compte' });
+        update.phone = phone;
+      }
+    }
     if (avatar !== undefined) {
       if (avatar && !/^https:\/\//i.test(avatar)) return res.status(400).json({ message: 'Invalid avatar URL' });
       update.avatar = avatar.slice(0, 1000);
