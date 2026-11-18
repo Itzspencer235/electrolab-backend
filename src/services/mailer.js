@@ -6,12 +6,12 @@
 //                      Resend account email, from onboarding@resend.dev.
 //   EMAIL_REPLY_TO   — where customer replies go (optional, e.g. contact@ipelectrolab.com)
 //   SITE_URL         — public website URL used in buttons (optional)
-//   CONTACT_WHATSAPP — WhatsApp number shown in emails (optional, e.g. +23566823123)
+//   CONTACT_WHATSAPP — WhatsApp number shown in emails (optional, default +23566823123)
 //   ADMIN_EMAILS     — comma-separated addresses that get "new order" alerts
 //                      (optional; default: the email of every admin account)
 const FROM      = () => process.env.EMAIL_FROM || 'IP ElectroLab <onboarding@resend.dev>';
 const SITE_URL  = () => (process.env.SITE_URL || 'https://ipelectrolab.com').replace(/\/$/, '');
-const WHATSAPP  = () => (process.env.CONTACT_WHATSAPP || '').trim();
+const WHATSAPP  = () => (process.env.CONTACT_WHATSAPP || '+23566823123').trim();
 const REPLY_TO  = () => (process.env.EMAIL_REPLY_TO || '').trim();
 
 const emailConfigured = () => !!process.env.RESEND_API_KEY;
