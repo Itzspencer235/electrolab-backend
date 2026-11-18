@@ -45,6 +45,11 @@ app.use('/api/requests',  require('./routes/requests'));
 app.use('/api/translate', require('./routes/translate'));   // admin auto-translate
 app.use('/api/notifications', require('./routes/notifications'));
 
+// Discounts on many products + admin-controlled pop-ups
+const { sales, promotions } = require('./routes/marketing');
+app.use('/api/sales',      sales);
+app.use('/api/promotions', promotions);
+
 app.get('/', (req, res) => res.json({ message: 'IP ElectroLab API ✅' }));
 
 // Last resort: never send stack traces or internal error text to clients

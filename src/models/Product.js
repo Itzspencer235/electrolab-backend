@@ -29,6 +29,12 @@ const ProductSchema = new mongoose.Schema({
   // ← Free-text category: no enum constraint, admins type whatever they want
   category: { type: String, required: true, trim: true },
   stock:    { type: Number, default: 0 },
+
+  // Discount on this product (0 = none). Optional dates limit when it applies.
+  // Site-wide/category sales live in the Sale model; the bigger one wins.
+  discountPercent:  { type: Number, default: 0, min: 0, max: 90 },
+  discountStartsAt: { type: Date },
+  discountEndsAt:   { type: Date },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', ProductSchema);

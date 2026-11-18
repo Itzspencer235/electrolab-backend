@@ -31,6 +31,28 @@ router.get('/:id/full', adminMiddleware, async (req, res) => {
 
 router.get('/:id', getProduct);
 
+// Product discount from the admin form: percent 0–90, optional start/end dates.
+// Fields that aren't sent keep their current value.
+function parseDiscount(b, existing = {}) {
+  const out = {};
+  if (b.discountPercent !== undefined) {
+    const n = Math.round(Number(b.discountPercent) || 0);
+    if (n < 0 || n > 90) throw new Error('Discount must be between 0 and 90%');
+    out.discountPercent = n;
+  }
+  for (const k of ['discountStartsAt', 'discountEndsAt']) {
+    if (b[k] === undefined) continue;
+    if (b[k] === null || b[k] === '') { out[k] = null; continue; }
+    const d = new Date(b[k]);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid discount date');
+    out[k] = d;
+  }
+  const start = out.discountStartsAt !== undefined ? out.discountStartsAt : existing.discountStartsAt;
+  const end   = out.discountEndsAt   !== undefined ? out.discountEndsAt   : existing.discountEndsAt;
+  if (start && end && end <= start) throw new Error('Discount end must be after its start');
+  return out;
+}
+
 router.post('/', adminMiddleware, async (req, res) => {
   try {
     const b = req.body;
@@ -51,6 +73,7 @@ router.post('/', adminMiddleware, async (req, res) => {
       imageUrl:         b.imageUrl || '',
       images:           b.images   || [],
       circuitImages:    b.circuitImages || [],
+      ...parseDiscount(b),
     });
     await product.save();
     res.status(201).json(product);
@@ -81,9 +104,10 @@ router.put('/:id', adminMiddleware, async (req, res) => {
       imageUrl:         b.imageUrl          ?? existing.imageUrl,
       images:           b.images            ?? existing.images,
       circuitImages:    b.circuitImages      ?? existing.circuitImages,
+      ...parseDiscount(b, existing),
     };
     const product = await Product.findByIdAndUpdate(
-        req.params.id, update, { new: true });
+        req.params.id, update, { new: true, runValidators: true });
     res.json(product);
   } catch (err) {
     res.status(400).json({ message: err.message });

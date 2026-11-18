@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Order    = require('../models/Order');
 const Product  = require('../models/Product');
+const { activeSales, priceInfo } = require('../services/pricing');
 const User     = require('../models/User');
 const { notifyUser } = require('../services/notify');
 
@@ -51,7 +52,11 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Produits invalides' });
     }
 
-    const found = await Product.find({ _id: { $in: ids } }).select('name price').lean();
+    const [found, sales] = await Promise.all([
+      Product.find({ _id: { $in: ids } })
+        .select('name price category discountPercent discountStartsAt discountEndsAt').lean(),
+      activeSales(),
+    ]);
     const byId  = new Map(found.map(p => [String(p._id), p]));
     if (byId.size !== new Set(ids).size) {
       return res.status(400).json({ message: 'Produit introuvable' });
@@ -60,7 +65,8 @@ exports.createOrder = async (req, res) => {
     const products = lines.map((l, i) => {
       const p   = byId.get(ids[i]);
       const qty = Math.min(MAX_QTY, Math.max(1, Math.floor(Number(l.quantity)) || 1));
-      return { product: p._id, name: p.name?.fr || '', quantity: qty, price: p.price };
+      // Charged at today's price, discounts included (never the client's number)
+      return { product: p._id, name: p.name?.fr || '', quantity: qty, price: priceInfo(p, sales).finalPrice };
     });
     const totalPrice = products.reduce((sum, p) => sum + p.price * p.quantity, 0);
 
