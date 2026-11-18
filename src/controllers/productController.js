@@ -1,4 +1,15 @@
 const Product = require('../models/Product');
+const { activeSales, priceInfo } = require('../services/pricing');
+
+// Discount fields every product response carries (price = original price)
+const pricing = (p, sales, lang) => {
+  const i = priceInfo(p, sales);
+  return {
+    price: i.price, finalPrice: i.finalPrice,
+    discountPercent: i.discountPercent, discountEndsAt: i.discountEndsAt,
+    saleTitle: i.saleTitle ? (i.saleTitle[lang] || i.saleTitle.fr || '') : '',
+  };
+};
 
 // Safe multilang field extractor
 const localize = (field, lang) => {
@@ -13,12 +24,12 @@ exports.getProducts = async (req, res) => {
     const filter = {};
     if (req.query.category) filter.category = req.query.category;
 
-    const products = await Product.find(filter);
+    const [products, sales] = await Promise.all([Product.find(filter), activeSales()]);
     const result = products.map(p => ({
       _id:      p._id,
       name:     localize(p.name, lang),   // ← was `loc()` — typo crashing the route
       description: localize(p.description, lang),
-      price:    p.price,
+      ...pricing(p, sales, lang),
       category: p.category,
       stock:    p.stock,
       imageUrl: p.imageUrl,
@@ -26,14 +37,14 @@ exports.getProducts = async (req, res) => {
     }));
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
 exports.getProduct = async (req, res) => {
   try {
     const lang = req.query.lang || 'fr';
-    const p = await Product.findById(req.params.id);
+    const [p, sales] = await Promise.all([Product.findById(req.params.id), activeSales()]);
     if (!p) return res.status(404).json({ message: 'Produit introuvable' });
     res.json({
       _id:              p._id,
@@ -47,7 +58,7 @@ exports.getProduct = async (req, res) => {
       parameters:       p.parameters || [],
       sampleCode:       p.sampleCode || '',
       codeLanguage:     p.codeLanguage || 'cpp',
-      price:            p.price,
+      ...pricing(p, sales, lang),
       category:         p.category,
       stock:            p.stock,
       imageUrl:         p.imageUrl || '',
@@ -55,6 +66,6 @@ exports.getProduct = async (req, res) => {
       circuitImages:    p.circuitImages || [],
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };

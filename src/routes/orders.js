@@ -1,11 +1,13 @@
 const router = require('express').Router();
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, optionalAuth } = require('../middleware/auth');
+const { orderLimiter } = require('../middleware/security');
 const Order = require('../models/Order');
 const {
   createOrder, getOrders, getOrder, updateOrderStatus,
 } = require('../controllers/orderController');
 
-router.post('/', createOrder);
+// Guests can order too; a valid token links the order to that account
+router.post('/', orderLimiter, optionalAuth, createOrder);
 
 // User's own orders
 router.get('/my', authMiddleware, async (req, res) => {
@@ -13,7 +15,7 @@ router.get('/my', authMiddleware, async (req, res) => {
     const orders = await Order.find({ 'user.userId': req.user.id })
       .sort({ createdAt: -1 });
     res.json(orders);
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Server error' }); }
 });
 
 // Admin
@@ -36,10 +38,10 @@ router.get('/stats',     adminMiddleware, async (req, res) => {
       total, pending, confirmed, delivered, cancelled,
       revenue: revenue[0]?.total || 0,
     });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Server error' }); }
 });
 
-router.get('/:id',            getOrder);
+router.get('/:id',            authMiddleware, getOrder);   // owner or admin
 router.put('/:id/status',     adminMiddleware, updateOrderStatus);
 
 module.exports = router;

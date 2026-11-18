@@ -8,7 +8,7 @@ exports.getWishlist = async (req, res) => {
     res.json(wishlist);
   } catch (err) {
     console.error('getWishlist error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -43,7 +43,7 @@ exports.syncWishlist = async (req, res) => {
     res.json(wishlist);
   } catch (err) {
     console.error('❌ syncWishlist error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -73,7 +73,7 @@ exports.toggleItem = async (req, res) => {
     res.json({ wishlist, wishlisted });
   } catch (err) {
     console.error('toggleItem error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -91,7 +91,7 @@ exports.removeItem = async (req, res) => {
     res.json(wishlist || { user: req.user.id, items: [] });
   } catch (err) {
     console.error('removeItem error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -106,6 +106,6 @@ exports.clearWishlist = async (req, res) => {
     res.json(wishlist);
   } catch (err) {
     console.error('clearWishlist error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error(err); res.status(500).json({ message: 'Server error' });
   }
 };

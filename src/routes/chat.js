@@ -1,6 +1,10 @@
 const router = require('express').Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Product = require('../models/Product');
+const { chatLimiter } = require('../middleware/security');
+
+const MAX_MESSAGE = 2000;   // characters per message
+const MAX_CONTEXT = 1000;   // characters of page context (tutorial / product)
 
 // Initialisation de l'IA
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
@@ -30,11 +34,10 @@ async function getProductList() {
 
 // Prompts système par langue
 const systemPrompts = {
-  fr: (productList, context) => `Tu es l'assistant IA de IP ElectroLab, boutique d'électronique au Tchad. 🇹🇩
+  fr: (productList) => `Tu es l'assistant IA de IP ElectroLab, boutique d'électronique au Tchad. 🇹🇩
 Aide sur: Arduino, ESP32, capteurs, GSM, soudure.
 Réponds en FRANÇAIS, de façon concise et pédagogique. 🎓
 Code : Utilise des blocs avec commentaires.
-${context ? `Contexte: ${context}` : ''}
 
 Produits disponibles:
 ${productList}
@@ -42,11 +45,10 @@ ${productList}
 Si dispo: Mentionne-le et invite à commander via WhatsApp (+23566823123).
 Format: Max 3 paragraphes.`,
 
-  en: (productList, context) => `You are the AI assistant of IP ElectroLab, electronics shop in Chad. 🇹🇩
+  en: (productList) => `You are the AI assistant of IP ElectroLab, electronics shop in Chad. 🇹🇩
 Help with Arduino, ESP32, sensors, robotics.
 Reply in ENGLISH, clearly and concisely.
 Code: Use commented blocks.
-${context ? `Context: ${context}` : ''}
 
 Available products:
 ${productList}
@@ -55,16 +57,26 @@ If available: Mention it and encourage WhatsApp orders (+23566823123).`,
 };
 
 // Route POST principale
-router.post('/', async (req, res) => {
+router.post('/', chatLimiter, async (req, res) => {
   try {
-    const { message, lang = 'fr', history = [], context = null } = req.body;
+    const b       = req.body || {};
+    const lang    = b.lang === 'en' ? 'en' : 'fr';
+    const message = typeof b.message === 'string' ? b.message.trim() : '';
+    const context = typeof b.context === 'string' ? b.context.trim().slice(0, MAX_CONTEXT) : '';
+    const history = Array.isArray(b.history) ? b.history : [];
 
-    if (!message?.trim()) {
+    if (!message) {
       return res.status(400).json({ message: 'Message requis' });
+    }
+    if (message.length > MAX_MESSAGE) {
+      return res.status(400).json({ message: 'Message trop long' });
     }
 
     const productList = await getProductList();
-    const systemPromptText = (systemPrompts[lang] || systemPrompts.fr)(productList, context);
+    // The page context comes from the client, so it goes in the user's turn,
+    // never in the system instructions.
+    const userText = context ? `[${lang === 'en' ? 'Context' : 'Contexte'}: ${context}]\n\n${message}` : message;
+    const systemPromptText = systemPrompts[lang](productList);
 
     // Configuration du modèle
     const model = genAI.getGenerativeModel({
@@ -75,10 +87,14 @@ router.post('/', async (req, res) => {
     });
 
     // Formatage de l'historique pour Gemini
-    const chatHistory = history.slice(-10).map(h => ({
-      role: h.role === 'user' ? 'user' : 'model',
-      parts: [{ text: h.text }],
-    }));
+    const chatHistory = history.slice(-10)
+      .filter(h => typeof h?.text === 'string' && h.text.trim())
+      .map(h => ({
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.text.slice(0, MAX_MESSAGE) }],
+      }));
+    // Gemini requires the history to start with a user turn
+    while (chatHistory.length && chatHistory[0].role !== 'user') chatHistory.shift();
 
     const chat = model.startChat({
       history: chatHistory,
@@ -88,7 +104,7 @@ router.post('/', async (req, res) => {
       },
     });
 
-    const result = await chat.sendMessage(message);
+    const result = await chat.sendMessage(userText);
     const reply = result.response.text();
 
     res.json({ reply });
@@ -99,7 +115,7 @@ router.post('/', async (req, res) => {
       fr: '❌ Service temporairement indisponible. Réessayez.',
       en: '❌ Service unavailable. Please try again.'
     };
-    res.status(500).json({ reply: errorMsg[req.body.lang || 'fr'] });
+    res.status(500).json({ reply: errorMsg[req.body?.lang === 'en' ? 'en' : 'fr'] });
   }
 });
 
