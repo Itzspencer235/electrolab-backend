@@ -58,7 +58,7 @@ async function notifyUser(userOrId, { type = 'announcement', title, body = '', d
 
 /**
  * Admin announcement to many users. In-app + push are done before returning;
- * emails go out in the background (Resend allows ~2/second on the free plan).
+ * emails go out in the background (paced so the email provider's rate limit isn't hit).
  */
 async function notifyMany(filter, { title, body, data = {} }, channels = {}) {
   const { inApp = true, push = true, email = false } = channels;
@@ -97,7 +97,7 @@ async function notifyMany(filter, { title, body, data = {} }, channels = {}) {
 /**
  * Welcome: one in-app welcome item per account, plus the welcome email.
  * The email is retried on later sign-ins until it actually goes out
- * (e.g. before RESEND_API_KEY was configured).
+ * (e.g. before BREVO_API_KEY was configured).
  */
 async function welcomeUser(user) {
   try {

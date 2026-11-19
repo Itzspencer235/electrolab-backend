@@ -1,20 +1,62 @@
-// Email through Resend (https://resend.com).
+// Email through Brevo (https://www.brevo.com).
 // Render env:
-//   RESEND_API_KEY   — from resend.com → API Keys
-//   EMAIL_FROM       — e.g. "IP ElectroLab <bonjour@yourdomain.com>" (needs a verified
-//                      domain). Without a domain Resend only delivers to your own
-//                      Resend account email, from onboarding@resend.dev.
+//   BREVO_API_KEY    — Brevo → SMTP & API → API Keys (starts with "xkeysib-")
+//   EMAIL_FROM       — e.g. "IP ElectroLab <bonjour@yourdomain.com>". The address
+//                      must be a verified sender in Brevo (Senders, Domains &
+//                      Dedicated IPs → Senders) — a single verified address is enough.
 //   EMAIL_REPLY_TO   — where customer replies go (optional, e.g. contact@ipelectrolab.com)
 //   SITE_URL         — public website URL used in buttons (optional)
 //   CONTACT_WHATSAPP — WhatsApp number shown in emails (optional, default +23566823123)
 //   ADMIN_EMAILS     — comma-separated addresses that get "new order" alerts
 //                      (optional; default: the email of every admin account)
-const FROM      = () => process.env.EMAIL_FROM || 'IP ElectroLab <onboarding@resend.dev>';
+// RESEND_API_KEY still works as a fallback when BREVO_API_KEY is not set.
+const FROM      = () => process.env.EMAIL_FROM || 'IP ElectroLab <contact@ipelectrolab.com>';
 const SITE_URL  = () => (process.env.SITE_URL || 'https://ipelectrolab.com').replace(/\/$/, '');
 const WHATSAPP  = () => (process.env.CONTACT_WHATSAPP || '+23566823123').trim();
 const REPLY_TO  = () => (process.env.EMAIL_REPLY_TO || '').trim();
 
-const emailConfigured = () => !!process.env.RESEND_API_KEY;
+const provider = () => (process.env.BREVO_API_KEY ? 'brevo' : process.env.RESEND_API_KEY ? 'resend' : null);
+const emailConfigured = () => !!provider();
+
+// "Name <email@x.com>" → { name, email }
+function parseAddress(v) {
+  const m = String(v || '').match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  return m ? { name: m[1].trim() || undefined, email: m[2].trim() } : { email: String(v || '').trim() };
+}
+
+function request({ to, subject, html, text }) {
+  const list = Array.isArray(to) ? to : [to];
+  if (provider() === 'brevo') {
+    const sender = parseAddress(FROM());
+    return fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender,
+        to: list.map(email => ({ email })),
+        subject,
+        htmlContent: html,
+        ...(text ? { textContent: text } : {}),
+        ...(REPLY_TO() ? { replyTo: parseAddress(REPLY_TO()) } : {}),
+      }),
+    });
+  }
+  return fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: FROM(), to: list, subject, html, text,
+      ...(REPLY_TO() ? { reply_to: REPLY_TO() } : {}),
+    }),
+  });
+}
 
 const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -26,24 +68,14 @@ const orderNo = (o) => String(o._id).slice(-8).toUpperCase();
 
 async function sendEmail({ to, subject, html, text }) {
   if (!emailConfigured()) {
-    console.log(`ℹ️  RESEND_API_KEY not set — email "${subject}" not sent`);
+    console.log(`ℹ️  BREVO_API_KEY not set — email "${subject}" not sent`);
     return { sent: false, reason: 'not_configured' };
   }
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: FROM(), to: Array.isArray(to) ? to : [to], subject, html, text,
-        ...(REPLY_TO() ? { reply_to: REPLY_TO() } : {}),
-      }),
-    });
+    const res = await request({ to, subject, html, text });
     if (!res.ok) {
       const err = await res.text().catch(() => '');
-      console.error(`❌ Email "${subject}" failed (${res.status}): ${err.slice(0, 300)}`);
+      console.error(`❌ Email "${subject}" failed (${provider()} ${res.status}): ${err.slice(0, 300)}`);
       return { sent: false, reason: `http_${res.status}` };
     }
     return { sent: true };
