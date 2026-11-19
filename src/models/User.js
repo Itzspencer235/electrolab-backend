@@ -12,7 +12,8 @@ const UserSchema = new mongoose.Schema({
   // OAuth
   googleId:   { type: String },
   facebookId: { type: String },
-  provider:   { type: String, enum: ['local', 'google', 'facebook'], default: 'local' },
+  appleId:    { type: String },
+  provider:   { type: String, enum: ['local', 'google', 'facebook', 'apple'], default: 'local' },
 
   // Legacy cart & wishlist (the app now uses the Cart and Wishlist collections)
   cart: [{
@@ -56,6 +57,11 @@ UserSchema.index(
 UserSchema.index(
   { facebookId: 1 },
   { partialFilterExpression: { facebookId: { $type: 'string' } } }
+);
+
+UserSchema.index(
+  { appleId: 1 },
+  { partialFilterExpression: { appleId: { $type: 'string' } } }
 );
 
 module.exports = mongoose.model('User', UserSchema);

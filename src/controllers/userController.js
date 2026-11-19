@@ -5,6 +5,7 @@ const { welcomeUser } = require('../services/notify');
 const { OAuth2Client } = require('google-auth-library');
 const { normalizePhone } = require('../services/phone');
 const { verifyLimitedToken, looksLikeJwt } = require('../services/facebookLimited');
+const { verifyAppleToken } = require('../services/appleAuth');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -251,6 +252,85 @@ exports.facebookAuth = async (req, res) => {
   }
 };
 
+// ── Sign in with Apple (iPhone) ───────────────────────────────────────────────
+exports.appleAuth = async (req, res) => {
+  try {
+    const identityToken = asString(req.body?.identityToken, 4096);
+    if (!identityToken) return res.status(400).json({ message: 'Token requis' });
+
+    let apple;
+    try {
+      apple = await verifyAppleToken(identityToken);
+    } catch (e) {
+      console.error('Apple token rejected:', e.message);
+      return res.status(401).json({ message: 'Token Apple invalide' });
+    }
+
+    // Apple gives the name only the very first time, from the app (not in the token)
+    const name = asString(req.body?.name, 100);
+
+    let user = await User.findOne({ appleId: apple.sub });
+    if (!user) {
+      if (apple.email && apple.emailVerified) user = await User.findOne({ email: apple.email });
+      if (user) {
+        user.appleId  = apple.sub;
+        user.provider = 'apple';
+        claimByEmail(user);
+      } else {
+        user = await User.create({
+          name:        name || (apple.email ? apple.email.split('@')[0] : 'Apple'),
+          email:       apple.email || undefined,
+          appleId:     apple.sub,
+          provider:    'apple',
+          isVerified:  true,
+          lastLoginAt: new Date(),
+        });
+      }
+    }
+    if (name && (!user.name || user.name === 'Apple')) user.name = name;
+    user.lastLoginAt = new Date();
+    await user.save();
+    res.json(userResponse(user, signToken(user)));
+    welcomeUser(user);
+  } catch (err) {
+    console.error('Apple auth error:', err.message);
+    res.status(500).json({ message: 'Connexion Apple impossible' });
+  }
+};
+
+// ── Delete my account (required by the App Store and Google Play) ────────────
+// Removes the account and everything tied to it. Orders are kept for the
+// shop's accounting, but no longer linked to the account.
+exports.removeUserData = async (userId) => {
+  const Cart           = require('../models/Cart');
+  const Wishlist       = require('../models/Wishlist');
+  const Notification   = require('../models/Notification');
+  const ProductRequest = require('../models/ProductRequest');
+  const Order          = require('../models/Order');
+  await Promise.all([
+    Cart.deleteMany({ user: userId }),
+    Wishlist.deleteMany({ user: userId }),
+    Notification.deleteMany({ user: userId }),
+    ProductRequest.deleteMany({ 'user.userId': userId }),
+    Order.updateMany({ 'user.userId': userId }, { $unset: { 'user.userId': 1 } }),
+  ]);
+  await User.findByIdAndDelete(userId);
+};
+
+exports.deleteMe = async (req, res) => {
+  try {
+    const me = await User.findById(req.user.id).select('role');
+    if (!me) return res.status(404).json({ message: 'Utilisateur introuvable' });
+    if (me.role === 'admin' && await User.countDocuments({ role: 'admin' }) <= 1)
+      return res.status(400).json({ message: 'Vous êtes le seul administrateur : nommez un autre admin avant de supprimer votre compte.' });
+    await exports.removeUserData(me._id);
+    res.json({ ok: true, message: 'Compte supprimé' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // ── Get profile ───────────────────────────────────────────────────────────────
 exports.getProfile = async (req, res) => {
   try {
@@ -278,8 +358,8 @@ exports.updateProfile = async (req, res) => {
       const raw = req.body.phone;
       if (raw === null || raw === '') {
         // Removing it is fine only if the account can still sign in another way
-        const me = await User.findById(req.user.id).select('email googleId facebookId');
-        if (!me?.email && !me?.googleId && !me?.facebookId)
+        const me = await User.findById(req.user.id).select('email googleId facebookId appleId');
+        if (!me?.email && !me?.googleId && !me?.facebookId && !me?.appleId)
           return res.status(400).json({ message: 'Le téléphone est votre seul identifiant' });
         update.$unset = { phone: 1 };
       } else {

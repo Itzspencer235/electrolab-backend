@@ -50,6 +50,9 @@ const { sales, promotions } = require('./routes/marketing');
 app.use('/api/sales',      sales);
 app.use('/api/promotions', promotions);
 
+// Privacy policy + account deletion pages (store listings link here)
+app.use('/', require('./routes/legal'));
+
 app.get('/', (req, res) => res.json({ message: 'IP ElectroLab API ✅' }));
 
 // Last resort: never send stack traces or internal error text to clients
