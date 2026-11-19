@@ -72,7 +72,7 @@ const PRIVACY = {
     ['Services tiers', ['Ces prestataires traitent des données pour nous :', [
       'Google (connexion Google, Firebase Cloud Messaging pour les notifications, Gemini pour l\'assistant IA)',
       'Meta (connexion Facebook) · Apple (Sign in with Apple)',
-      'MongoDB Atlas (base de données) · Render (serveur) · Cloudinary (images) · Resend (emails)',
+      'MongoDB Atlas (base de données) · Render (serveur) · Cloudinary (images) · Brevo (emails)',
     ]]],
     ['Durée de conservation', ['Vos données sont conservées tant que votre compte existe. Quand vous le supprimez, nous effaçons le compte, le panier, les favoris, les notifications et les demandes de produits. Les commandes passées sont conservées pour la comptabilité de la boutique, sans lien avec votre compte.']],
     ['Vos droits et suppression du compte', [`Vous pouvez consulter et modifier vos informations dans l\'application (Profil). Pour supprimer votre compte : Paramètres → Supprimer mon compte. Sans l\'application : voir <a href="/delete-account?lang=fr">cette page</a>.`]],
@@ -103,7 +103,7 @@ const PRIVACY = {
     ['Third-party services', ['These providers process data for us:', [
       'Google (Google sign-in, Firebase Cloud Messaging for notifications, Gemini for the AI assistant)',
       'Meta (Facebook login) · Apple (Sign in with Apple)',
-      'MongoDB Atlas (database) · Render (server) · Cloudinary (images) · Resend (email)',
+      'MongoDB Atlas (database) · Render (server) · Cloudinary (images) · Brevo (email)',
     ]]],
     ['How long we keep it', ['We keep your data while your account exists. When you delete it, we erase the account, cart, wishlist, notifications and product requests. Past orders are kept for the shop\'s accounting, no longer linked to your account.']],
     ['Your rights and account deletion', [`You can see and edit your information in the app (Profile). To delete your account: Settings → Delete my account. Without the app: see <a href="/delete-account?lang=en">this page</a>.`]],
@@ -134,7 +134,7 @@ const PRIVACY = {
     ['خدمات خارجية', ['يعالج هؤلاء المزوّدون البيانات لصالحنا:', [
       'Google (تسجيل الدخول، Firebase Cloud Messaging للإشعارات، Gemini للمساعد الذكي)',
       'Meta (تسجيل الدخول عبر Facebook) · Apple (Sign in with Apple)',
-      'MongoDB Atlas (قاعدة البيانات) · Render (الخادم) · Cloudinary (الصور) · Resend (البريد)',
+      'MongoDB Atlas (قاعدة البيانات) · Render (الخادم) · Cloudinary (الصور) · Brevo (البريد)',
     ]]],
     ['مدة الاحتفاظ', ['نحتفظ ببياناتك ما دام حسابك موجوداً. عند حذفه نمسح الحساب والسلة والمفضلة والإشعارات وطلبات المنتجات. تُحفظ الطلبات السابقة لمحاسبة المتجر دون ربطها بحسابك.']],
     ['حقوقك وحذف الحساب', [`يمكنك رؤية معلوماتك وتعديلها في التطبيق (الملف الشخصي). لحذف حسابك: الإعدادات ← حذف حسابي. بدون التطبيق: راجع <a href="/delete-account?lang=ar">هذه الصفحة</a>.`]],
